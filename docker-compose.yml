@@ -1,10 +1,41 @@
 name: caddy
 
 services:
+  # Caddy needs to read container labels, which means Docker API access. Mounting
+  # the socket into Caddy directly would hand an attacker who achieved RCE in an
+  # internet-facing process the whole API: read every container's environment
+  # (API keys, DB passwords), then start a privileged container and own the host.
+  # `:ro` on a socket bind does NOT prevent that — it only stops the socket file
+  # itself being replaced; the API behind it stays read-write.
+  #
+  # This proxy exposes only the handful of GET endpoints Caddy actually uses.
+  # POST=0 is the setting that matters: it blocks container creation.
+  dockersocket:
+    image: tecnativa/docker-socket-proxy:v0.5.0
+    container_name: caddy-dockersocket
+    restart: unless-stopped
+    environment:
+      - CONTAINERS=1
+      # Required, despite CADDY_INGRESS_NETWORKS being set explicitly: without it
+      # Caddy logs "Failed to get ingress networks" and falls back to guessing
+      # upstream addresses.
+      - NETWORKS=1
+      - EVENTS=1
+      - PING=1
+      - VERSION=1
+      - INFO=1
+      - POST=0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - dockerapi
+
   caddy:
     image: lucaslorentz/caddy-docker-proxy:2.13.1-alpine
     container_name: caddy
     restart: unless-stopped
+    depends_on:
+      - dockersocket
     ports:
       - "80:80"
     environment:
@@ -12,13 +43,13 @@ services:
       # sit on several networks each; without this Caddy may pick the address of
       # a network it is not attached to and every route 502s.
       - CADDY_INGRESS_NETWORKS=caddy
+      - DOCKER_HOST=tcp://dockersocket:2375
     volumes:
-      # Read-only: the label watcher only ever reads container metadata.
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - caddy-data:/data
       - caddy-config:/config
     networks:
       - caddy
+      - dockerapi
     # Routes for services that cannot carry their own labels, kept here so they
     # stay in git rather than becoming hand-edits that vanish on a redeploy.
     # Everything else labels itself in its own stack; add here only when the
@@ -46,6 +77,12 @@ networks:
   caddy:
     external: true
     name: caddy
+
+  # Deliberately NOT the shared caddy network: putting the socket proxy there
+  # would expose the Docker API to grafana, documenso and every other proxied
+  # service. `internal` also denies it outbound access.
+  dockerapi:
+    internal: true
 
 volumes:
   # Deliberately NOT external, unlike uptime-kuma's. Caddy's entire runtime

@@ -50,6 +50,30 @@ which cannot work for `.lan` and leaves the route broken. The explicit `http://`
 scheme keeps it plaintext. Everything here is LAN-only or already behind
 Cloudflare's edge, so nothing is served over plaintext that was not already.
 
+## Caddy does not hold the Docker socket
+
+Caddy reads container labels through `tecnativa/docker-socket-proxy`, not from a
+socket bind mount of its own.
+
+This matters because `-v /var/run/docker.sock:...:ro` is not the protection it
+looks like. The `:ro` applies to the socket *file*, not the API behind it — a
+process with that mount can create containers, mount the host filesystem, and
+read every other container's environment variables. Caddy is reachable from the
+internet through the Cloudflare tunnel, so it is the last thing that should hold
+an unrestricted Docker handle.
+
+The proxy allows only the GET endpoints Caddy actually uses (`CONTAINERS`,
+`NETWORKS`, `EVENTS`, `PING`, `VERSION`, `INFO`) and sets `POST=0`, so container
+creation returns 403.
+
+`NETWORKS=1` is required even though `CADDY_INGRESS_NETWORKS` is set explicitly;
+without it Caddy logs `Failed to get ingress networks` and guesses upstream
+addresses instead.
+
+The proxy sits on a separate `dockerapi` network marked `internal`, **not** on
+the shared `caddy` network — otherwise every proxied service (grafana,
+documenso, …) could reach the Docker API too.
+
 ## The network is external on purpose
 
 `caddy` is declared `external: true` with an explicit `name:`, so it is never
