@@ -118,3 +118,4 @@ than from cloudflared directly.
 Nothing here needs backing up. Caddy's state is derived from container labels on
 every start, and there are no certificates. Rebuilding means redeploying the
 stack.
+
