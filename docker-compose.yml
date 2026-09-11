@@ -19,6 +19,24 @@ services:
       - caddy-config:/config
     networks:
       - caddy
+    # Routes for services that cannot carry their own labels, kept here so they
+    # stay in git rather than becoming hand-edits that vanish on a redeploy.
+    # Everything else labels itself in its own stack; add here only when the
+    # service genuinely cannot join the caddy network.
+    #
+    #   homebridge   - host networking, required for HomeKit mDNS/HAP discovery
+    #   portainer    - not a compose stack at all, a hand-run container
+    #   invoiceninja - the last web-editor stack, no git repo to push to
+    #
+    # These dial the host IP rather than a container, so they hairpin back
+    # through the published port instead of going direct over the caddy network.
+    labels:
+      - "caddy_1=http://homebridge.svc.lan"
+      - "caddy_1.reverse_proxy=192.168.1.12:8581"
+      - "caddy_2=http://portainer.svc.lan"
+      - "caddy_2.reverse_proxy=192.168.1.12:9000"
+      - "caddy_3=http://invoiceninja.svc.lan"
+      - "caddy_3.reverse_proxy=192.168.1.12:8012"
 
 networks:
   # Created out of band (see README) and declared external so the name never
