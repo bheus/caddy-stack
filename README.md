@@ -74,6 +74,32 @@ The proxy sits on a separate `dockerapi` network marked `internal`, **not** on
 the shared `caddy` network — otherwise every proxied service (grafana,
 documenso, …) could reach the Docker API too.
 
+## Deploys are webhook-only
+
+This stack has **no polling interval**. `.github/workflows/deploy.yml` validates
+the compose against an empty environment, then POSTs the Portainer stack webhook,
+so a push is live in seconds rather than after a poll. That webhook is the only
+deploy path — if the workflow does not run, nothing reaches the Pi.
+
+The URL lives in the repo secret `PORTAINER_CADDY_WEBHOOK` and must use the
+public hostname:
+
+```
+https://deploy.builtbybrendan.com/api/stacks/webhooks/<uuid>
+```
+
+**Not** `portainer.svc.lan`, which Portainer's UI suggests — GitHub Actions runs
+on the public internet and cannot resolve a LAN name. That `deploy.` hostname is
+path-scoped in the tunnel to `^/api/stacks/webhooks/.*$`, so it reaches the
+webhook and nothing else of Portainer.
+
+Portainer returns **204** and does nothing when the repo is already in sync, so a
+204 alone does not prove a deploy happened. Check the container's `StartedAt`.
+
+The UI shows a candidate webhook URL before the stack is saved, and that UUID is
+**not** registered until you save. POSTing it returns 404 from Portainer itself —
+which looks exactly like a tunnel problem and is not one.
+
 ## The network is external on purpose
 
 `caddy` is declared `external: true` with an explicit `name:`, so it is never
