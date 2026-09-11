@@ -1,0 +1,40 @@
+name: Validate and deploy
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  deploy:
+    name: Validate and deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.0
+
+      # Portainer deploys this compose file alone, with no .env, so every value
+      # must resolve from what is written here. `--env-file /dev/null` reproduces
+      # that empty environment. A compose that only validates locally would fail
+      # on the Pi, and a failed caddy deploy takes builtbybrendan.com down with
+      # it, so this gate runs before the webhook.
+      - name: Validate deployment compose
+        run: docker compose -f docker-compose.yml --env-file /dev/null config --quiet
+
+      # This stack has no image to build, so the webhook is the whole deploy.
+      # Portainer's GitOps setting is either polling or webhook, not both, and
+      # this stack uses the webhook — without this step a push never reaches the
+      # Pi and the stale routes fail silently as an empty 200.
+      - name: Trigger Portainer redeploy
+        if: github.event_name == 'push' && env.PORTAINER_CADDY_WEBHOOK != ''
+        env:
+          PORTAINER_CADDY_WEBHOOK: ${{ secrets.PORTAINER_CADDY_WEBHOOK }}
+        run: curl -fsSL -X POST "$PORTAINER_CADDY_WEBHOOK"
