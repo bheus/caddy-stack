@@ -1,0 +1,38 @@
+name: caddy
+
+services:
+  caddy:
+    image: lucaslorentz/caddy-docker-proxy:2.13.1-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      # Restricts upstream resolution to the caddy network. Proxied containers
+      # sit on several networks each; without this Caddy may pick the address of
+      # a network it is not attached to and every route 502s.
+      - CADDY_INGRESS_NETWORKS=caddy
+    volumes:
+      # Read-only: the label watcher only ever reads container metadata.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - caddy
+
+networks:
+  # Created out of band (see README) and declared external so the name never
+  # picks up a compose project prefix. Every proxied service joins it by this
+  # exact literal name from its own stack, so a prefix here would orphan all of
+  # them at once.
+  caddy:
+    external: true
+    name: caddy
+
+volumes:
+  # Deliberately NOT external, unlike uptime-kuma's. Caddy's entire runtime
+  # config is derived from container labels on every start, and these hostnames
+  # are HTTP-only, so there are no certificates here either. Losing these
+  # volumes to a stack rename costs nothing.
+  caddy-data:
+  caddy-config:

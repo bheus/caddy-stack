@@ -1,0 +1,12 @@
+version: 2
+updates:
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "sunday"
+    ignore:
+      # Majors have changed label semantics before; a bad bump silently drops
+      # every route rather than failing the deploy. Take them deliberately.
+      - dependency-name: "lucaslorentz/caddy-docker-proxy"
+        update-types: ["version-update:semver-major"]
