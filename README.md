@@ -4,7 +4,7 @@ Portainer Git stack for [caddy-docker-proxy](https://github.com/lucaslorentz/cad
 on `apple-pi.lan`. Gives every container a hostname instead of a port number.
 
 - **Stack name in Portainer:** `caddy`
-- **Owns:** host port `80`
+- **Owns:** host ports `80` and `443`
 - **Routes by:** `Host` header, from labels read off the Docker socket
 
 ## How it works
@@ -49,6 +49,9 @@ A bare `caddy=grafana.svc.lan` makes Caddy try to provision a real certificate,
 which cannot work for `.lan` and leaves the route broken. The explicit `http://`
 scheme keeps it plaintext. Everything here is LAN-only or already behind
 Cloudflare's edge, so nothing is served over plaintext that was not already.
+
+The one exception is `invoiceninja.svc.lan`, which uses `tls=internal` — see
+*HTTPS* below.
 
 ## Caddy does not hold the Docker socket
 
@@ -139,9 +142,29 @@ This means **Caddy is in the path of the public site.** If Caddy is down,
 `TRUST_PROXY=true`: client IPs now arrive as `X-Forwarded-For` from Caddy rather
 than from cloudflared directly.
 
-## Not covered by backups
+## HTTPS: `invoiceninja.svc.lan` only
 
-Nothing here needs backing up. Caddy's state is derived from container labels on
-every start, and there are no certificates. Rebuilding means redeploying the
-stack.
+Invoice Ninja sets `REQUIRE_HTTPS=true`, so it cannot be served over plain HTTP
+behind a proxy. Its label omits the `http://` scheme and sets `tls=internal`:
+Caddy signs the certificate with its own local CA instead of attempting ACME.
 
+That CA is not publicly trusted. Each client that uses the route must trust its
+root once. Export it:
+
+```bash
+ssh bheussler@apple-pi.lan 'docker exec caddy cat /data/caddy/pki/authorities/local/root.crt' > caddy-root.crt
+```
+
+- **macOS:** `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain caddy-root.crt`
+- **iOS:** AirDrop the `.crt`, install it under Settings → Profile Downloaded,
+  then enable it under Settings → General → About → Certificate Trust Settings.
+  Installing the profile alone does not trust it.
+
+The root is valid for 10 years; intermediates and leaves rotate automatically
+without touching clients.
+
+## `caddy-data` holds the CA root
+
+The volume holds the CA root key, so it is declared `external` to survive a stack
+rename. If it is ever lost, Caddy creates a new root and every client has to
+trust the new one. Everything else here is derived from labels on each start.

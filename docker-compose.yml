@@ -38,6 +38,7 @@ services:
       - dockersocket
     ports:
       - "80:80"
+      - "443:443"
     environment:
       # Restricts upstream resolution to the caddy network. Proxied containers
       # sit on several networks each; without this Caddy may pick the address of
@@ -56,20 +57,25 @@ services:
     # service genuinely cannot join the caddy network.
     #
     #   homebridge - host networking, required for HomeKit mDNS/HAP discovery
-    #   portainer  - not a compose stack at all, a hand-run container
+    #   homebridge   - host networking, required for HomeKit mDNS/HAP discovery
+    #   portainer    - not a compose stack at all, a hand-run container
+    #   invoiceninja - the last web-editor stack, no git repo to push to
     #
     # These dial the host IP rather than a container, so they hairpin back
     # through the published port instead of going direct over the caddy network.
     #
-    # Invoice Ninja is deliberately NOT here. It sets REQUIRE_HTTPS=true and
-    # redirects any proxied request to https://, which this stack does not serve,
-    # and its APP_URL points at the public portal regardless. Admin is VPN-only
-    # at http://apple-pi.lan:8012.
+    # Invoice Ninja is the one HTTPS route. It sets REQUIRE_HTTPS=true and
+    # redirects anything arriving with X-Forwarded-Proto: http, so it must be
+    # served over TLS. `tls internal` signs it with Caddy's local CA, whose root
+    # has to be trusted on each client (see README).
     labels:
       - "caddy_1=http://homebridge.svc.lan"
       - "caddy_1.reverse_proxy=192.168.1.12:8581"
       - "caddy_2=http://portainer.svc.lan"
       - "caddy_2.reverse_proxy=192.168.1.12:9000"
+      - "caddy_3=invoiceninja.svc.lan"
+      - "caddy_3.tls=internal"
+      - "caddy_3.reverse_proxy=192.168.1.12:8012"
 
 networks:
   # Created out of band (see README) and declared external so the name never
@@ -87,9 +93,11 @@ networks:
     internal: true
 
 volumes:
-  # Deliberately NOT external, unlike uptime-kuma's. Caddy's entire runtime
-  # config is derived from container labels on every start, and these hostnames
-  # are HTTP-only, so there are no certificates here either. Losing these
-  # volumes to a stack rename costs nothing.
+  # External so a stack rename cannot silently replace it: this volume holds the
+  # internal CA's root key. A fresh volume means a new root, and every client
+  # that trusted the old one would need the certificate reinstalled.
   caddy-data:
+    external: true
+    name: caddy-stack_caddy-data
+  # Derived from labels on every start; losing it costs nothing.
   caddy-config:
